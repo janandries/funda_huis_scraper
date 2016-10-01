@@ -1,2 +1,6 @@
 # Ignore output of scraper
 data.sqlite
+data.json
+
+# test files
+test1.py

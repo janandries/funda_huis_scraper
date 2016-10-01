@@ -1,102 +1,129 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-# This is a template for a Python scraper on morph.io (https://morph.io)
-# including some code snippets below that you should find helpful
+import bs4, urllib.request, datetime, sqlite3, json
 
-# import scraperwiki
-# import lxml.html
-#
-# # Read in a page
-# html = scraperwiki.scrape("http://foo.com")
-#
-# # Find something on the page using css selectors
-# root = lxml.html.fromstring(html)
-# root.cssselect("div[align='left']")
-#
-# # Write out to the sqlite database using scraperwiki library
-# scraperwiki.sqlite.save(unique_keys=['name'], data={"name": "susan", "occupation": "software developer"})
-#
-# # An arbitrary query against the database
-# scraperwiki.sql.select("* from data where 'name'='peter'")
+def get_webdata(w):
+#this function gets the specifics from a certain house advert and adds it to the dictionary
+    fundaUrl = 'http://www.funda.nl'
+    html = urllib.request.urlopen(fundaUrl + w['link']).read().decode('latin-1')
+    soup = bs4.BeautifulSoup(html,'html.parser')
+    r={}
+    #print(soup.findAll('a'))
+    for ad in soup.findAll(attrs={'class' : 'object-kenmerken-body'}):
+        for n in ad.findAll(attrs={'class' : 'object-kenmerken-list'},recursive=False):
+            for k in n.findAll(['dd','dt']):
+                #print(k)
+                try:
+                    if k.find_next_sibling().name == 'dd':
+                        r[k.text.strip()] = k.find_next_sibling().text.strip()
+                except AttributeError:
+                    next
+    return(r)
 
-# You don't have to do things with the ScraperWiki and lxml libraries.
-# You can use whatever libraries you want: https://morph.io/documentation/python
-# All that matters is that your final data is written to an SQLite database
-# called "data.sqlite" in the current working directory which has at least a table
-# called "data".
-
-import bs4, urllib.request, datetime, sqlite3
-
-#start database
-conn = sqlite3.connect('data.sqlite')
-c = conn.cursor()
-
-#make sure we have a table called data
-c.execute("CREATE TABLE IF NOT EXISTS data (title text, link text, subtitle text, price integer, area integer);")
-#scraperwiki.metadata.save('data_columns', ['id', 'date', 'street', 'city', 'postcode', 'livingspace', 'otherspace', 'price'])
-
-MAX_PAGES = 1 #max number of pages to search
+#===== DEFINE SEARCH OPTIONS ======
+MAX_PAGES = 9999999 #max number of pages to search
 city = 'rotterdam'
 minPrice=str(100000)
 maxPrice=str(200000)
 
 fundaUrl = 'http://www.funda.nl'
-startUrl = fundaUrl + '/koop/' + city + '/' + minPrice + '-' + maxPrice + '/' + '/' + 'bestaande-bouw' + '/'
-
+baseUrl = fundaUrl + '/koop/' + city + '/' + minPrice + '-' + maxPrice + '/' + 'bestaande-bouw' + '/'
 #met garage:
-#startUrl = startUrl + "/aangebouwde-garage/inpandige-garage/vrijstaande-garage/"
+#baseUrl = baseUrl + "/aangebouwde-garage/inpandige-garage/vrijstaande-garage/"
+baseUrl = baseUrl + 'p'
 
-baseUrl = startUrl
+data_file_name = 'data.json'
 
-print(baseUrl)
-
-html = urllib.request.urlopen(startUrl).read().decode('latin-1')
+#===== START SCRAPE =====
+current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+print("Welcome! Today is ", current_date)
+print("Scraping ... " + baseUrl)
+html = urllib.request.urlopen(baseUrl).read().decode('latin-1')
 soup = bs4.BeautifulSoup(html,'html.parser')
 
 #print(soup.prettify('latin-1'))
 
 # get number of pages
 try:
-	pages = soup.findAll(attrs={'class' : 'pagination-number pagination-last'})
-	numberOfPages = int(pages[0]['data-pagination-page'])
+    pages = soup.findAll(attrs={'class' : 'pagination-number pagination-last'})
+    numberOfPages = int(pages[0]['data-pagination-page'])
 except IndexError:
-	print("IndexError when trying to find number of pages")
-	numberOfPages = 1
-	
+    print("IndexError when trying to find number of pages")
+    numberOfPages = 1
+    
 print("Pages found: " + str(numberOfPages))
 
 if numberOfPages > MAX_PAGES:
-	print("More pages found than MAX_PAGES -> only processing first " + str(MAX_PAGES) + " pages.")
-	numberOfPages = MAX_PAGES
+    print("More pages found than MAX_PAGES -> only processing first " + str(MAX_PAGES) + " pages.\n")
+    numberOfPages = MAX_PAGES
 items = []
-today = datetime.date.today()
 
+#load file if exists
+try:
+    with open(data_file_name, 'x+') as data_file:    
+        data_file.write('[]')
+        data = []
+except FileExistsError:
+    with open(data_file_name, 'r+') as data_file:
+        data = json.load(data_file)
+#print(json.dumps(data,indent=4))
 
-
+#check each page
 for pageNo in range(1, numberOfPages + 1):
- 
     nextUrl = baseUrl + str(pageNo)
-    print('page: ' + nextUrl)
+    print('Scraping page ' + str(pageNo) + ' - ' + nextUrl)
     html = urllib.request.urlopen(nextUrl).read().decode('latin-1')
     soup = bs4.BeautifulSoup(html,'html.parser')
-    #print(soup.findAll('a'))
+    #check ads on page
     for ad in soup.findAll(attrs={'class' : 'search-result-content-inner'}):
-        #print(ad)
-        item = {}
-        item['title']    = ad.find(attrs={'class':'search-result-title'}).contents[0].strip()
-        item['link']     = ad.find(attrs={'class':'search-result-header'}).a['href'].strip()        
-        item['subtitle'] = ad.find(attrs={'class':'search-result-subtitle'}).contents[0].strip()
-        item['price']    = ad.find(attrs={'class':'search-result-price'}).contents[0].replace('â\x82¬',"").replace("k.k.","").strip().replace(".","")
-        item['area']     = ad.find(attrs={'title':'Woonoppervlakte'}).contents[0].replace("m²","").strip()
-        
-		
-        print(item)
-        #print(ad.find(attrs={'class':'search-result-price'}).string)
-        #for item in ad.find(attrs={'class':'search-result-price'}):
-        #    print(item.string)
-            #realItem['id'] = fundaUrl + item['href']
-                    
-        #items.append(realItem)
-        #scraperwiki.datastore.save(unique_keys=['id'], data=realItem)
-        #print('items saved: ' + str(len(items)))
+        #extract basic data from each ad
+        webdata = {}
+        try:
+            webdata['title']     = ad.find(attrs={'class':'search-result-title'}).contents[0].strip()
+            webdata['subtitle']  = ad.find(attrs={'class':'search-result-subtitle'}).contents[0].strip()
+            webdata['link']      = ad.find(attrs={'class':'search-result-header'}).a['href'].strip()
+            webdata['price']     = ad.find(attrs={'class':'search-result-price'}).contents[0].replace('â\x82¬',"").replace("k.k.","").strip().replace(".","")
+        except: #for any error, we just continue with the next add
+            print('Error getting listing. Going to next ...')
+            continue
+        try: 
+            webdata['area'] = ad.find(attrs={'title':'Woonoppervlakte'}).contents[0].replace("m²","").strip()
+        except: #at an error for area, we do go on
+            webdata['area'] = '0'
+            
+        #find if this entry exists in our json-data
+        adAlreadyInDatabase = False
+        for n in data:
+            #print(data)
+            if n['title']==webdata['title']:
+                adAlreadyInDatabase = True
+                newPrice = True
+                for p in n['price']:
+                    if p['date'] == current_date:
+                        newPrice = False
+                if newPrice:
+                    print('Updating price for: ', [webdata['title'],webdata['subtitle']])
+                    n['price'].append({'price':webdata['price'],'date': current_date})
+                n['last_seen'] = current_date
+                
+        if not adAlreadyInDatabase: 
+            print('Adding new entry: ',[webdata['title'],webdata['subtitle']])
+            #get add specific data
+            r = get_webdata(webdata)
+            #add the high level info
+            r['title'] = webdata['title']
+            r['link'] = webdata['link']
+            r['subtitle'] = webdata['subtitle']
+            r['price'] = [{'price':webdata['price'],'date': current_date}]
+            r['area'] = webdata['area']
+            r['last_seen'] = current_date
+            data.append(r)
+    #to be sure, we write our data every page so we don't loose too much
+    with open(data_file_name, 'w') as data_file:
+        print('Writing to file ...')
+        data_file.write(json.dumps(data,indent=4))    
+
+#export the JSON
+
+
